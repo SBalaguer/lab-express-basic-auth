@@ -9,12 +9,21 @@ const sassMiddleware = require('node-sass-middleware');
 const serveFavicon = require('serve-favicon');
 
 const indexRouter = require('./routes/index');
+const user = require('./routes/user');
 
+const User = require('./models/user')
+const mongoose = require ('mongoose');
 const app = express();
+const expressSession = require ('express-session');
+const connectMongo = require('connect-mongo');
+const MongoStore = connectMongo(expressSession);
+const hbs = require('hbs');
+
 
 // Setup view engine
 app.set('views', join(__dirname, 'views'));
 app.set('view engine', 'hbs');
+hbs.registerPartials(__dirname + "/views/partials");
 
 app.use(logger('dev'));
 app.use(express.json());
@@ -29,7 +38,46 @@ app.use(sassMiddleware({
   sourceMap: true
 }));
 
+app.use(
+  expressSession({
+    secret: process.env.SESSION_SECRET,
+    resave: true,
+    saveUninitialized: false,
+    cookie:{
+      maxAge: 60*60*24*15, //15 days
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: true,
+      httpOnly: true,
+    },
+    store: new MongoStore({
+      mongooseConnection: mongoose.connection,
+      ttl: 60*60*24 //one full day
+    })
+  })
+);
+
+app.use((req,res,next) =>{
+  // console.log('im running!')
+  const userId = req.session.user;
+  console.log(userId);
+  if (userId) {
+    User.findById(userId)
+    .then(signedUser =>{
+      console.log('logged in user is', signedUser);
+      req.user = signedUser;
+      res.locals.user = req.user;
+      next();
+    })
+    .catch(error =>{
+      next(error);
+    });
+  } else {
+    next();
+  }
+});
+
 app.use('/', indexRouter);
+app.use('/user', user);
 
 // Catch missing routes and forward to error handler
 app.use((req, res, next) => {
